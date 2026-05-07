@@ -1,0 +1,318 @@
+function srv(name) return game:GetService(name) end
+function csn(time, color) return ColorSequenceKeypoint.new(time, Color3.fromRGB(unpack(color))) end
+
+local ws, plrs, tws, rs, core
+ws = srv("Workspace")
+plrs = srv("Players")
+tws = srv("TweenService")
+rs = srv("RunService")
+core = srv("CoreGui")
+
+local plr, camera_x, data
+plr = plrs.LocalPlayer
+camera_x = ws.CurrentCamera
+data = {
+  current_point = 0,
+  current_cube = nil,
+  current_tws = nil,
+  on_zipline = false,
+  tool_equip = false,
+  text_loaded = false,
+  plr_died = false,
+  old_name_vfx = "",
+  display = {
+    tool_cd = false
+  }
+}
+
+local zipline_folder, zipline_uis, nil_folder
+zipline_folder = Instance.new("Folder", ws)
+zipline_uis = Instance.new("Folder", core)
+nil_folder = Instance.new("Folder", ws)
+zipline_folder.Name = "Zipline_Points"
+zipline_uis.Name = "Zipline_GUIs"
+nil_folder.Name = "Ignored_Items"
+
+local nil_part
+nil_part = Instance.new("Part", nil_folder)
+nil_part.Name = "Nil_Part"
+nil_part.Anchored = true
+nil_part.CanCollide = false
+nil_part.Transparency = 1
+nil_part.Material = Enum.Material.Plastic
+nil_part.Position = Vector3.new(0, 9e4, 0)
+nil_part.Size = Vector3.new(1, 1, 1)
+
+local screenui = Instance.new("ScreenGui", zipline_uis)
+local bboardui = Instance.new("BillboardGui", zipline_uis)
+screenui.Name = "Zipline_UI"
+bboardui.Name = "Zipline_VFXs"
+
+bboardui.AlwaysOnTop = true
+bboardui.Adornee = nil_part
+bboardui.Size = UDim2.new(0, 200, 0, 200)
+
+local zipline_select, slct_name
+zipline_select = Instance.new("ImageLabel", bboardui)
+slct_name = Instance.new("TextLabel", bboardui)
+zipline_select.Name = "Selection_Star"
+slct_name.Name = "Selectection_Name"
+zipline_select.BackgroundTransparency = 1
+zipline_select.BackgroundColor3 = Color3.new(0, 0, 0)
+zipline_select.Position = UDim2.new(0, 0, 0, 0)
+zipline_select.Size = UDim2.new(1, 0, 1, 0)
+zipline_select.Image = getcustomasset("HHxScripts/Assets/Images/lock_in.png")
+zipline_select.ImageColor3 = Color3.new(1, 1, 1)
+zipline_select.ImageTransparency = 1
+zipline_select.ScaleType = Enum.ScaleType.Fit
+zipline_select.Rotation = 0
+
+local ui_objs, keypoints
+ui_objs, keypoints = {
+  class_1 = {"TextLabel", "TextButton", "TextBox"},
+  notification = Instance.new("TextLabel", screenui),
+  nil_word = {Name = "nil", Position = Vector3.new(0, 0, 0)},
+  selection_box_effects = {
+    rotate = tws:Create(zipline_select, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 0, false, 0), {
+      Position = UDim2.new(0.365, 0, 0.4, 0),
+      Size = UDim2.new(0.25, 0, 0.25, 0),
+      ImageColor3 = Color3.new(1, 1, 0),
+      Rotation = 380
+    })
+  }
+}, {
+  yellow_gradient = {
+    csn(0, {255, 255, 255}), csn(0.25, {255, 255, 200}), csn(0.5, {255, 255, 150}),
+    csn(0.75, {255, 255, 100}), csn(1, {255, 255, 0})
+  }
+}
+
+local zipline
+zipline = Instance.new("Tool", plr.Backpack)
+zipline.Name = "Zip Line"
+zipline.RequiresHandle = false
+
+function set_props(ins, ...)
+  local props = {...}
+  if table.find(ui_objs.class_1, ins.ClassName) then
+    ins.BackgroundTransparency = props[1]
+    ins.BackgroundColor3 = Color3.fromRGB(unpack(props[2]))
+    ins.Position = UDim2.new(unpack(props[3]))
+    ins.Size = UDim2.new(unpack(props[4]))
+    ins.TextScaled = props[5]
+    ins.TextSize = props[6]
+    ins.TextColor3 = Color3.fromRGB(unpack(props[7]))
+    ins.Font = Enum.Font[props[8]]
+    ins.Text = props[9] or ""
+    ins.Visible = props[10] or false
+    ins.Name = props[11] or "Default"
+  end
+end
+
+function notify(str, w_time)
+  local ui = ui_objs.notification
+  local _waiting = w_time or 2
+  if not ui.Visible then ui.Visible = true
+    ui.Text = "[ " .. str .. " ]"
+  else
+    ui.Text = "[ " .. str .. " ]"
+  end task.wait(_waiting) ui.Visible = false
+end
+
+function add_bv()
+  local hrp = plr.Character.HumanoidRootPart
+  if not hrp:FindFirstChild("In_UsedZipline") then
+    local bv = Instance.new("BodyVelocity", plr.Character.HumanoidRootPart)
+    bv.Name = "In_UsedZipline"
+    bv.Velocity = Vector3.new(0, 0, 0)
+    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+  end
+end
+
+function remove_bv()
+  local hrp = plr.Character.HumanoidRootPart
+  if hrp:FindFirstChild("In_UsedZipline") then
+    hrp["In_UsedZipline"]:Destroy()
+  end
+end
+
+function tweening_to(point)
+  local hrp = plr.Character.HumanoidRootPart
+  if data.current_tws then data.current_tws:Cancel() end
+  data.current_tws = tws:Create(hrp, TweenInfo.new((hrp.Position - point).magnitude / 42, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
+    CFrame = CFrame.new(point)
+  }) data.current_tws:Play()
+  data.current_tws.Completed:Wait()
+  data.current_tws = nil
+end
+
+function built_cube()
+  data.current_point = data.current_point + 1
+  local cube = Instance.new("Part", zipline_folder)
+  local atment = Instance.new("Attachment", cube)
+  cube.Name = "Zipline_" .. data.current_point
+  cube.Anchored = true
+  cube.CanCollide = false
+  cube.Transparency = 0
+  cube.Color = Color3.new(1, 1, 1)
+  cube.Material = Enum.Material.Neon
+  cube.Position = plr.Character.HumanoidRootPart.Position
+  cube.Size = Vector3.new(1.5, 0.5, 1.5)
+  atment.Name = "Beam_Point"
+  atment.Position = atment.Position + Vector3.new(0, 4, 0)
+  if #zipline_folder:GetChildren() > 1 then
+    local beam = Instance.new("Beam", cube)
+    beam.Name = "Connection_VFX"
+    beam.Texture = "rbxassetid://144076435"
+    beam.TextureLength = 0.4
+    beam.TextureSpeed = 2.25
+    --beam.Color = ColorSequence.new(keypoints.yellow_gradient)
+    beam.Attachment1 = atment
+    beam.Attachment0 = data.current_cube:FindFirstChild("Beam_Point")
+    cube.Touched:Connect(function()
+      if not data.current_tws and data.tool_equip then
+        add_bv()
+        data.on_zipline = true
+      else if data.tool_equip then notify("Đã chạm tới vị trí " .. cube.Name .. "!") end
+      end if not data.tool_equip then remove_bv() end
+    end)
+    print("Connected: " .. cube.Name .. " to " .. data.current_cube.Name)
+  elseif #zipline_folder:GetChildren() == 1 then
+    local core_bboard = bboardui:Clone()
+    core_bboard.Parent = zipline_uis
+    core_bboard.Adornee = cube
+    core_bboard.Name = "CoreOriginium_VFXs"
+    local name_origin = Instance.new("TextLabel", core_bboard)
+    cube.Name = "Core Originium"
+    cube.Color = Color3.new(1, 1, 0)
+    set_props(name_origin, 1, {0, 0, 0}, {0.365, 0, 0.3, 0}, {0.25, 0, 0.05, 0}, true, 9, {255, 255, 0}, "Arcade", cube.Name, true, cube.Name .. " label")
+  end data.current_cube = cube
+end
+
+function selecting_zipline_pylon()
+  for _, obj in pairs(zipline_folder:GetChildren()) do
+    if obj:IsA("Part") and obj:FindFirstChildOfClass("Attachment") then
+      local screen, spotted = camera_x:WorldToScreenPoint(obj.Position)
+      if screen.x >= 350 and screen.x <= 400 and spotted then
+        bboardui.Adornee = obj
+        return obj
+      end
+    end
+  end bboardui.Adornee = nil_part
+  return ui_objs.nil_word
+end
+
+function check_nearest_point(studs)
+  local near, best, inrange = nil, math.huge, studs or 0
+  for _, obj in pairs(zipline_folder:GetChildren()) do
+    if obj:IsA("Part") and (obj.Name:lower():match("zipline") or obj.Name:lower():match("core")) then
+      local distance = (obj.Position - plr.Character.HumanoidRootPart.Position).magnitude
+      if distance < best and distance <= inrange then
+        best = distance
+        near = obj
+      end
+    end
+  end return near
+end
+
+function text_fill_effect(str)
+  if not data.text_loaded and data.old_name_vfx ~= str then data.text_loaded = true
+  local result = ""
+  data.old_name_vfx = str
+  for index = 1, #str do
+    result = result .. str:sub(index, index)
+    slct_name.Text = "[ " .. result .. " ]"
+    wait(0.05)
+  end data.text_loaded = false end
+end
+
+function reset_slct()
+  if bboardui.Adornee == nil_part then
+    zipline_select.Position = UDim2.new(0, 0, 0, 0)
+    zipline_select.Size = UDim2.new(1, 0, 1, 0)
+    zipline_select.ImageColor3 = Color3.new(1, 1, 1)
+    zipline_select.Rotation = 0
+  end
+end
+
+function setup_selection_vfx()
+  if #zipline_folder:GetChildren() == 0 then return end
+  local obj = selecting_zipline_pylon()
+  if obj and obj.Name ~= "nil" then
+    if zipline_select.ImageTransparency == 1 then
+      zipline_select.ImageTransparency = 0.25
+      ui_objs.selection_box_effects.rotate:Play()
+      slct_name.Visible = true
+    end
+  else
+    if zipline_select.ImageTransparency == 0.25 then
+      zipline_select.ImageTransparency = 1
+      zipline_select.Rotation = 0
+      slct_name.Visible = false
+    end
+  end reset_slct()
+  text_fill_effect(obj.Name)
+end
+
+function cancel_zipline()
+  plr.Character.Humanoid:GetPropertyChangedSignal("Jump"):Connect(function()
+    if data.current_tws then
+      data.current_tws:Cancel()
+      remove_bv()
+      notify("Đã thoát khỏi zipline... !")
+    end
+  end)
+end cancel_zipline()
+
+set_props(ui_objs.notification, 0.85, {0, 0, 0}, {0.35, 0, 0, 0}, {0.3, 0, 0.1, 0}, true, 9, {255, 255, 0}, "Arcade", nil, false)
+set_props(slct_name, 1, {0, 0, 0}, {0.6, 0, 0.58, 0}, {0.25, 0, 0.05, 0}, true, 9, {255, 255, 0}, "Arcade", "[ nil ]", false)
+
+zipline.Activated:Connect(function()
+  local nearest_point = check_nearest_point(6.25)
+  if data.on_zipline then tweening_to(selecting_zipline_pylon().Position) return end
+  if nearest_point ~= nil then
+    if not data.display.tool_cd then data.display.tool_cd = true
+      notify("Không thể đặt một trụ zipline khác ở quá gần... ")
+      task.wait(0.5) data.display.tool_cd = false
+    end
+  else
+    if check_nearest_point(800) then
+      built_cube()
+    else
+      if #zipline_folder:GetChildren() == 0 then
+        built_cube()
+      else
+        notify("Ngoài phạm vi... có thể kết nối với trụ zipline khác!")
+      end
+    end
+  end zipline.Name = "Zip Line"
+end)
+
+zipline.Equipped:Connect(function() data.tool_equip = true end)
+zipline.Unequipped:Connect(function() data.tool_equip = false data.on_zipline = false
+  zipline_select.ImageTransparency = 1
+  slct_name.Visible = false
+  bboardui.Adornee = nil_part
+  reset_slct() remove_bv()
+end)
+
+rs.RenderStepped:Connect(function(dt)
+  if dt and data.tool_equip and data.on_zipline then setup_selection_vfx() end
+end)
+
+rs.RenderStepped:Connect(function(dt)
+  if plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health <= 0 then
+    if not data.plr_died then
+      data.plr_died = true
+      zipline.Parent = nil_folder
+    end
+  else if data.plr_died then
+      data.plr_died = false
+      zipline.Parent = plr.Backpack
+      cancel_zipline()
+    end
+  end
+end)
+
+notify("Arknight Endfield: Construct [Zipline Pylon]", 5)
+notify("Script by HoangHienXScripts :)!")
